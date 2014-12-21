@@ -1,0 +1,161 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Priscilla Kurtz"
+date: "Thursday, December 18, 2014"
+output: html_document
+---
+
+This is the course project for the Practical Machine Learning from the Data Science Specialization. The goal of your project is to predict the manner in which they did the exercise.
+
+# Prediction Study Design
+
+First we need to set the seed, load libraries, and data, and do some cleaning. You may need to install parallel package.
+```{r}
+library(caret)
+library(doParallel)
+set.seed(12345)
+
+training <- read.csv(file = "pml-training.csv",header = TRUE, sep = ",", na.strings=c("#DIV/0!","<NA>","NA",""," "))
+testing <- read.csv(file = "pml-testing.csv", header = TRUE, sep = ",", na.strings=c("#DIV/0!","<NA>","NA",""," "))
+```
+
+For cleaning, I chose to use the ```nearZeroVar``` function to remove predictors with few unique values:
+```{r eval=FALSE}
+#indexes  <- nearZeroVar(training, saveMetrics = FALSE)
+#training <- training[-indexes]
+#testing  <- testing[-indexes]
+```
+
+Remove all columns with only NA values from both training and testing:
+```{r eval=FALSE}
+training_NAs <- apply(training, 2, function(x) {sum(is.na(x))})
+training <- training[,which(training_NAs == 0)]
+testing <- testing[,which(training_NAs == 0)]
+```
+
+And change classe variable from factor to character:
+```{r eval=FALSE}
+i <- sapply(training, is.factor)
+training[i] <- lapply(training[i], as.character)
+testing[i] <- lapply(testing[i], as.character)
+```
+
+Finishing the cleaning step, the columns user_name, raw_timestamp_part_1, raw_timestamp_part_2, and cvtd_timestamp were removed, and turn classe column into a non categorical variable.
+```{r eval=FALSE}
+drops <- c("user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp")
+training <- training[, !(names(training) %in% drops)]
+testing <- testing[, !(names(testing) %in% drops)]
+```
+
+# Training
+
+We'll split the training set into two sets for cross validation: 70% for training, and 30% for validation.
+
+```{r eval=FALSE}
+indexes_for_training <- createDataPartition(y = training$classe, p=0.7, list=FALSE)
+training_t <- training[indexes_for_training,]
+training_v <- training[-indexes_for_training,]
+```
+
+We'll create a cluster with ```doParallel``` to use 4 parallel threads.
+
+```{r eval=FALSE}
+cl <- makeCluster(2)
+registerDoParallel(2)
+```
+
+We'll train our model using cross validation with default parameters with the exception of allowParallel:
+
+```{r eval=FALSE}
+modFit <- train(as.factor(classe) ~ ., data=training_t, method="rf", prox=TRUE, trControl=trainControl(method = "cv", allowParallel = TRUE), allowParallel=TRUE)
+modFit
+```
+
+Here is the result of the training section:
+
+Random Forest 
+
+13737 samples
+   54 predictors
+    5 classes: 'A', 'B', 'C', 'D', 'E' 
+
+No pre-processing
+Resampling: Cross-Validated (10 fold) 
+
+Summary of sample sizes: 12362, 12364, 12364, 12364, 12363, 12363, ... 
+
+Resampling results across tuning parameters:
+
+  mtry  Accuracy   Kappa      Accuracy SD   Kappa SD    
+   2    0.9981073  0.9976062  0.0015943893  0.0020164396
+  28    1.0000000  1.0000000  0.0000000000  0.0000000000
+  54    0.9995632  0.9994476  0.0006510252  0.0008233699
+
+Accuracy was used to select the optimal model using  the largest value.
+The final value used for the model was mtry = 28. 
+
+#Validating
+
+We'll validate our model using the predict function with training_v section of our training set:
+
+```{r eval=FALSE}
+predict <- predict(modFit, training_v)
+cm <- confusionMatrix(training_v$classe, predict)
+cm
+```
+
+The overall accuracy of our model is 0.9998301.
+
+Here's the confusion matrix
+
+onfusion Matrix and Statistics
+
+          Reference
+Prediction    A    B    C    D    E
+         A 1674    0    0    0    0
+         B    0 1138    1    0    0
+         C    0    0 1026    0    0
+         D    0    0    0  964    0
+         E    0    0    0    0 1082
+
+Overall Statistics
+                                     
+               Accuracy : 0.9998     
+                 95% CI : (0.9991, 1)
+    No Information Rate : 0.2845     
+    P-Value [Acc > NIR] : < 2.2e-16  
+                                     
+                  Kappa : 0.9998     
+ Mcnemar's Test P-Value : NA         
+
+Statistics by Class:
+
+                     Class: A Class: B Class: C Class: D Class: E
+Sensitivity            1.0000   1.0000   0.9990   1.0000   1.0000
+Specificity            1.0000   0.9998   1.0000   1.0000   1.0000
+Pos Pred Value         1.0000   0.9991   1.0000   1.0000   1.0000
+Neg Pred Value         1.0000   1.0000   0.9998   1.0000   1.0000
+Prevalence             0.2845   0.1934   0.1745   0.1638   0.1839
+Detection Rate         0.2845   0.1934   0.1743   0.1638   0.1839
+Detection Prevalence   0.2845   0.1935   0.1743   0.1638   0.1839
+Balanced Accuracy      1.0000   0.9999   0.9995   1.0000   1.0000
+
+#Predicting
+
+Now, using the testing data set, let's predict using the function that creates the files and upload them to the Coursera Submission part of the assignment:
+
+```{r eval=FALSE}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+prediction <- predict(modFit, testing)
+pml_write_files(prediction)
+```
+
+
+You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases. 
